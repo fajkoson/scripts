@@ -1,0 +1,1 @@
+Dump for simple scripts, so i dont need them to create them over and over.
