@@ -5,6 +5,100 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
+def annotate_points(ax, xs, ys, fmt, *, fontsize=8, xytext=(0, 8)):
+    """Annotate each (x,y) with fmt, e.g. '{y:.1f}s' or '{y:.2f}×'."""
+    for x, y in zip(xs, ys):
+        ax.annotate(
+            fmt.format(x=x, y=y),
+            (x, y),
+            textcoords="offset points",
+            xytext=xytext,
+            ha="center",
+            va="bottom",
+            fontsize=fontsize,
+        )
+
+def annotate_delta_percent_only(ax, xs, ys, *, fontsize=8, xytext=(0, 8), show_baseline=False):
+    """
+    Labels relative % change between consecutive points:
+      pct = (current - prev) / prev * 100
+    Example: 81.6 -> 65.1 gives -20.2%
+    """
+    for i, (x, y) in enumerate(zip(xs, ys)):
+        if i == 0:
+            if not show_baseline:
+                continue
+            label = "baseline"
+        else:
+            prev = ys[i - 1]
+            pct = ((y - prev) / prev) * 100.0
+            label = f"{pct:+.1f}%"
+
+        ax.annotate(
+            label,
+            (x, y),
+            textcoords="offset points",
+            xytext=xytext,
+            ha="center",
+            va="bottom",
+            fontsize=fontsize,
+        )
+
+
+def annotate_delta_pp_only(ax, xs, ys_percent, *, fontsize=8, xytext=(0, 8), show_baseline=False):
+    """
+    Labels Δ between consecutive points in percentage points (pp).
+      - baseline point: optional "baseline"
+      - others: "-16.5 pp"
+    """
+    for i, (x, y) in enumerate(zip(xs, ys_percent)):
+        if i == 0:
+            if not show_baseline:
+                continue
+            label = "baseline"
+        else:
+            prev = ys_percent[i - 1]
+            dpp = y - prev  # percentage points
+            label = f"{dpp:+.1f} pp"
+
+        ax.annotate(
+            label,
+            (x, y),
+            textcoords="offset points",
+            xytext=xytext,
+            ha="center",
+            va="bottom",
+            fontsize=fontsize,
+        )
+
+
+def annotate_build_time_delta_only(ax, threads, times_s, *, fontsize=8, xytext=(0, 8), show_baseline=False):
+    """
+    Delta-only labels at points:
+      - first point: (optional) "baseline"
+      - others:      "-38.7%"  where % is change vs previous point (negative = faster)
+    """
+    for i, (x, y) in enumerate(zip(threads, times_s)):
+        if i == 0:
+            if not show_baseline:
+                continue
+            label = "baseline"
+        else:
+            prev = times_s[i - 1]
+            pct = ((y - prev) / prev) * 100.0
+            label = f"{pct:+.1f}%"
+
+        ax.annotate(
+            label,
+            (x, y),
+            textcoords="offset points",
+            xytext=xytext,
+            ha="center",
+            va="bottom",
+            fontsize=fontsize,
+        )
+
+
 def parse_duration_to_seconds(s: str) -> float:
     """
     Parses 'HH:MM:SS.xx' into seconds (float).
@@ -63,18 +157,15 @@ def resolve_dataset_path(arg: str) -> Path:
     """
     p = Path(arg)
 
-    # Absolute path: use as-is.
     if p.is_absolute():
         return p
 
     script_dir = Path(__file__).resolve().parent
 
-    # If user already passed a relative path that exists relative to script dir, use it.
     candidate = (script_dir / p).resolve()
     if candidate.exists():
         return candidate
 
-    # Otherwise assume filename lives in script_dir/datasets/
     return (script_dir / "datasets" / p).resolve()
 
 
@@ -82,10 +173,6 @@ def prepare_output_dir(csv_path: Path) -> Path:
     """
     Creates (if needed) and returns:
       <script_dir>/out/results/<dataset_name>/
-    Mandatory checks:
-      - create attempt
-      - ensure path exists
-      - ensure it's a directory
     """
     script_dir = Path(__file__).resolve().parent
     dataset_name = csv_path.stem
@@ -96,7 +183,6 @@ def prepare_output_dir(csv_path: Path) -> Path:
     except Exception as e:
         raise RuntimeError(f"Failed to create output directory: {out_dir}") from e
 
-    # Mandatory checks before writing results
     if not out_dir.exists():
         raise RuntimeError(f"Output directory does not exist after creation attempt: {out_dir}")
     if not out_dir.is_dir():
@@ -109,6 +195,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("csv_file", help="Dataset filename (e.g. dataset01.csv) or a path")
     ap.add_argument("--show", action="store_true", help="Show plots interactively (also saves PNGs)")
+    ap.add_argument(
+        "--labels",
+        action="store_true",
+        help="Annotate points with values (Build time uses 'seconds (Δ%)')",
+    )
     args = ap.parse_args()
 
     csv_path = resolve_dataset_path(args.csv_file)
@@ -116,7 +207,6 @@ def main():
         raise FileNotFoundError(f"Dataset not found: {csv_path}")
 
     rows = load_dataset(csv_path)
-
     threads = [r[0] for r in rows]
     times_s = [r[2] for r in rows]
 
@@ -124,7 +214,6 @@ def main():
     speedup = [t1 / t for t in times_s]  # T1/Tn
     efficiency_percent = [(s / n) * 100.0 for s, n in zip(speedup, threads)]
 
-    # Prepare output directory (mandatory checks happen inside)
     out_dir = prepare_output_dir(csv_path)
 
     # Console summary
@@ -139,6 +228,12 @@ def main():
     plt.ylabel("Build time (seconds)")
     plt.title("Build time vs Threads")
     plt.grid(True, linewidth=0.5)
+
+    ax = plt.gca()
+    if args.labels:
+        #annotate_build_time_seconds_and_delta(ax, threads, times_s)
+        annotate_build_time_delta_only(ax, threads, times_s, show_baseline=False)
+
     plt.savefig(out_dir / "build_time_vs_threads.png", dpi=150, bbox_inches="tight")
 
     # ---- Plot 2: Speedup vs Threads (with ideal) ----
@@ -150,6 +245,11 @@ def main():
     plt.title("Speedup vs Threads")
     plt.grid(True, linewidth=0.5)
     plt.legend()
+
+    ax = plt.gca()
+    if args.labels:
+        annotate_points(ax, threads, speedup, "{y:.2f}×")
+
     plt.savefig(out_dir / "speedup_vs_threads.png", dpi=150, bbox_inches="tight")
 
     # ---- Plot 3: Efficiency vs Threads ----
@@ -159,9 +259,16 @@ def main():
     plt.ylabel("Efficiency (%)")
     plt.title("Parallel efficiency vs Threads")
     plt.grid(True, linewidth=0.5)
+
+    ax = plt.gca()
+    if args.labels:
+        #annotate_points(ax, threads, efficiency_percent, "{y:.1f}%")
+        #annotate_delta_pp_only(ax, threads, efficiency_percent, show_baseline=False)
+        annotate_delta_percent_only(ax, threads, efficiency_percent, show_baseline=False)
+
+
     plt.savefig(out_dir / "efficiency_vs_threads.png", dpi=150, bbox_inches="tight")
 
-    # Close figures unless user explicitly wants GUI windows
     if args.show:
         plt.show()
     else:

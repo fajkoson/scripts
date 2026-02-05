@@ -36,6 +36,6 @@ echo Current dir: %CD%
 echo Dataset path: %DATASET_PATH%
 pause
 
-.env\Scripts\python.exe cg.py %DATASET_PATH%
+.env\Scripts\python.exe cg.py %DATASET_PATH% --labels
 
 endlocal
